@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iron Beam Photorealistic Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Post-processing scripts for bloom and other effects -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            color: #00ff88;
+        }
+        canvas { display: block; }
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        .panel {
+            position: absolute;
+            background: linear-gradient(135deg, rgba(0,25,50,0.9), rgba(0,15,30,0.8));
+            border: 2px solid #00ff88;
+            border-image: linear-gradient(to right, #00ff88, #00ffff) 1;
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 0 30px rgba(0,255,136,0.3);
+            font-size: 12px;
+        }
+        #system-panel, #physics-panel, #engagement-panel, #controls-panel {
+            transition: opacity 0.5s;
+        }
+        #system-panel { top: 20px; left: 20px; width: 350px; max-height: calc(100vh - 40px); overflow-y: auto; }
+        #physics-panel { top: 20px; right: 20px; width: 280px; }
+        #engagement-panel { bottom: 20px; left: 20px; width: 400px; }
+        #controls-panel { bottom: 20px; right: 20px; width: 300px; pointer-events: all; }
+        .section-title {
+            color: #00ffff;
+            font-weight: bold;
+            font-size: 14px;
+            margin: 10px 0 8px 0;
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.5);
+            padding-bottom: 4px;
+        }
+        .data-row { display: flex; justify-content: space-between; margin: 5px 0; font-size: 12px; }
+        .metric-value { color: #ffff00; font-weight: bold; }
+        .status-active { color: #ff4444; font-weight: bold; animation: pulse-red 1s infinite; }
+        .status-ready { color: #00ff00; font-weight: bold; }
+        .status-manual { color: #00ffff; font-weight: bold; animation: pulse-blue 1.5s infinite; }
+        @keyframes pulse-red { 0%, 100% { opacity: 1; text-shadow: 0 0 5px #f00; } 50% { opacity: 0.7; text-shadow: none; } }
+        @keyframes pulse-blue { 0%, 100% { opacity: 1; text-shadow: 0 0 5px #0ff; } 50% { opacity: 0.7; text-shadow: none; } }
+        button {
+            background: linear-gradient(135deg, rgba(0,255,136,0.8), rgba(0,204,102,0.8));
+            border: 1px solid #00ff88;
+            padding: 8px 12px;
+            margin: 3px;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+            transition: all 0.2s;
+            box-shadow: 0 2px 10px rgba(0,255,136,0.3);
+            backdrop-filter: blur(5px);
+        }
+        button:hover {
+            background: linear-gradient(135deg, #00dd77, #00aa55);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,255,136,0.6);
+            border-color: #fff;
+        }
+        button.active {
+            background: linear-gradient(135deg, #00ffff, #00aaff);
+            border-color: #00ffff;
+            box-shadow: 0 0 15px #00ffff;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        <!-- Panels remain the same as previous version -->
+        <div class="panel" id="system-panel">
+            <div class="section-title">🛡️ Iron Beam System Status</div>
+            <div class="data-row"><span>System Status:</span><span id="system-status" class="metric-value status-ready">OPERATIONAL</span></div>
+            <div class="data-row"><span>Power Level:</span><span id="power-level" class="metric-value">100.0 kW</span></div>
+            <div class="data-row"><span>Beam Quality:</span><span id="beam-quality" class="metric-value">M² = 1.2</span></div>
+            <div class="data-row"><span>Core Temp:</span><span id="core-temp" class="metric-value">45°C</span></div>
+        </div>
+        <div class="panel" id="physics-panel">
+            <div class="section-title">🌪️ Atmospheric Conditions</div>
+            <div class="data-row"><span>Temperature:</span><span id="air-temp" class="metric-value">22°C</span></div>
+            <div class="data-row"><span>Humidity:</span><span id="humidity" class="metric-value">65%</span></div>
+            <div class="data-row"><span>Turbulence (Cn²):</span><span id="turbulence" class="metric-value">1.0e-14</span></div>
+        </div>
+        <div class="panel" id="engagement-panel">
+            <div class="section-title">🎯 Target Engagement</div>
+            <div class="data-row"><span>Targets Tracked:</span><span id="targets-tracked" class="metric-value">0</span></div>
+            <div class="data-row"><span>Current Target ID:</span><span id="current-target" class="metric-value">None</span></div>
+            <div class="data-row"><span>Range:</span><span id="target-range" class="metric-value">-- km</span></div>
+            <div class="data-row"><span>Target Health:</span><span id="target-health" class="metric-value">--%</span></div>
+            <div class="data-row"><span>Neutralized:</span><span id="neutralized-count" class="metric-value">0</span></div>
+        </div>
+        <div class="panel" id="controls-panel">
+            <div class="section-title">🎮 Mission Control</div>
+            <button onclick="launchMultiThreat()" style="width: 100%; margin-bottom: 8px;">🚀 LAUNCH COORDINATED ATTACK</button>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <button onclick="launchAdvancedThreat('rocket')">🚀 Rocket</button>
+                <button onclick="launchAdvancedThreat('drone')">🛸 Drone</button>
+                <button onclick="launchAdvancedThreat('mortar')">💥 Mortar</button>
+                <button onclick="toggleManualControl(this)">🕹️ Manual</button>
+                <button onclick="toggleHud()">👁️ HUD</button>
+                <button onclick="resetAdvancedDemo()">🔄 Reset</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- GLOBAL VARIABLES & SCENE SETUP ---
+    let scene, camera, renderer, clock, composer;
+    let ironBeam, activeTarget = null;
+    let isManualControl = false, isHudVisible = true;
+    const threats = [];
+    let neutralizedCount = 0;
+    const mouse = new THREE.Vector2(), raycaster = new THREE.Raycaster();
+    let audioCtx;
+    let controls;
+    let cameraShake = { intensity: 0, duration: 0 };
+
+    function init() {
+        // Audio
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Core THREE.js setup
+        scene = new THREE.Scene();
+        clock = new THREE.Clock();
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(10, 6, 15);
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // --- CAMERA CONTROLS ---
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.minDistance = 5;
+        controls.maxDistance = 100;
+        controls.target.set(0, 2, 0);
+
+        // --- SCENE CONTENT ---
+        createSkybox();
+        createAdvancedLighting();
+        createRealisticTerrain();
+        ironBeam = new AdvancedIronBeam();
+        setupPostProcessing();
+
+        // --- EVENT LISTENERS ---
+        window.addEventListener('resize', onWindowResize);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mousedown', () => { if(isManualControl) ironBeam.startFiring(); });
+        document.addEventListener('mouseup', () => { if(isManualControl) ironBeam.stopFiring(); });
+
+        animate();
+    }
+    
+    // --- ENHANCED VISUALS ---
+    function createSkybox() {
+        const loader = new THREE.CubeTextureLoader();
+        const texture = loader.load([
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/cube/MilkyWay/dark-s_px.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/cube/MilkyWay/dark-s_nx.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/cube/MilkyWay/dark-s_py.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/cube/MilkyWay/dark-s_ny.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/cube/MilkyWay/dark-s_pz.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/cube/MilkyWay/dark-s_nz.jpg'
+        ]);
+        scene.background = texture;
+    }
+
+    function createAdvancedLighting() {
+        scene.add(new THREE.AmbientLight(0x405060, 0.8));
+        const dirLight = new THREE.DirectionalLight(0xaaaaff, 1.5);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 500;
+        dirLight.shadow.camera.left = -150;
+        dirLight.shadow.camera.right = 150;
+        dirLight.shadow.camera.top = 150;
+        dirLight.shadow.camera.bottom = -150;
+        scene.add(dirLight);
+    }
+    
+    function createRealisticTerrain() {
+        // Add vertex displacement to create hills on the plane
+        const groundGeometry = new THREE.PlaneGeometry(500, 500, 128, 128);
+        const vertices = groundGeometry.attributes.position.array;
+        for (let i = 2; i < vertices.length; i += 3) {
+            const x = vertices[i - 2];
+            const y = vertices[i - 1];
+            vertices[i] = (Math.sin(x * 0.05) + Math.cos(y * 0.05)) * 2.5;
+        }
+        groundGeometry.attributes.position.needsUpdate = true;
+        groundGeometry.computeVertexNormals();
+
+        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x2d4a2d, roughness: 0.8, metalness: 0.1 });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        
+        // Add buildings to the terrain
+        const buildingMat = new THREE.MeshStandardMaterial({ color: 0x556677, metalness: 0.6, roughness: 0.4 });
+        for (let i = 0; i < 40; i++) {
+            const width = 4 + Math.random() * 8;
+            const depth = 4 + Math.random() * 8;
+            const height = 5 + Math.random() * 20;
+            const buildingGeom = new THREE.BoxGeometry(width, height, depth);
+            const building = new THREE.Mesh(buildingGeom, buildingMat);
+            
+            const x = (Math.random() - 0.5) * 450;
+            const z = (Math.random() - 0.5) * 450;
+            const groundHeight = (Math.sin(x * 0.05) + Math.cos(z * 0.05)) * 2.5;
+
+            building.position.set(x, height / 2 + groundHeight, z);
+            building.castShadow = true;
+            building.receiveShadow = true;
+            scene.add(building);
+        }
+    }
+
+    function setupPostProcessing() {
+        composer = new THREE.EffectComposer(renderer);
+        const renderPass = new THREE.RenderPass(scene, camera);
+        composer.addPass(renderPass);
+        const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.4, 0.85);
+        composer.addPass(bloomPass);
+    }
+
+    // --- SOUND DESIGN ---
+    function playSound(type, params = {}) {
+        if (!audioCtx || audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        };
+        const now = audioCtx.currentTime;
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.connect(audioCtx.destination);
+        
+        if (type === 'laser') {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(80, now);
+            osc.frequency.exponentialRampToValueAtTime(120, now + 0.1);
+            gainNode.gain.linearRampToValueAtTime(0.1, now + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, now + 0.1);
+            osc.connect(gainNode);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } else if (type === 'explosion') {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            const bqFilter = audioCtx.createBiquadFilter();
+            bqFilter.type = 'lowpass';
+            bqFilter.frequency.setValueAtTime(400, now);
+            bqFilter.Q.value = 1;
+            osc.frequency.setValueAtTime(160, now);
+            osc.frequency.exponentialRampToValueAtTime(0.01, now + 1.5);
+            gainNode.gain.setValueAtTime(1.0, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+            osc.connect(bqFilter);
+            bqFilter.connect(gainNode);
+            osc.start(now);
+            osc.stop(now + 1.5);
+        }
+    }
+
+    // --- IRON BEAM SYSTEM CLASS ---
+    class AdvancedIronBeam {
+        constructor() {
+            this.group = new THREE.Group();
+            this.laserBeams = [];
+            this.isEngaging = false;
+            this.manualFiring = false;
+            this.targetDirection = new THREE.Quaternion();
+            this.createAdvancedSystem();
+            scene.add(this.group);
+        }
+        createAdvancedSystem() {
+            // Create the base of the Iron Beam system
+            const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x334433, metalness: 0.8, roughness: 0.4 });
+            const base = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 3), baseMaterial);
+            base.castShadow = true;
+            base.receiveShadow = true;
+            this.group.add(base);
+
+            // Create the rotating turret
+            const turretMaterial = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.9, roughness: 0.3 });
+            this.turret = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 2, 12), turretMaterial);
+            this.turret.position.y = 1.4;
+            this.turret.castShadow = true;
+            this.group.add(this.turret);
+            
+            // Create the laser apertures on the turret
+            this.apertures = [];
+            for (let i = 0; i < 4; i++) {
+                const apertureGeom = new THREE.CylinderGeometry(0.15, 0.15, 0.3, 16);
+                const apertureMat = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000, 
+                    emissive: 0x00ffff, 
+                    emissiveIntensity: 0 
+                });
+                const aperture = new THREE.Mesh(apertureGeom, apertureMat);
+                const angle = (i / 4) * Math.PI * 2;
+                aperture.position.set(Math.cos(angle) * 0.4, 0.8, Math.sin(angle) * 0.4);
+                aperture.rotation.x = -Math.PI / 2;
+                this.apertures.push(aperture);
+                this.turret.add(aperture);
+            }
+
+            this.group.position.y = 1; // Adjusted for better placement
+        }
+        startFiring() { this.manualFiring = true; }
+        stopFiring() { this.manualFiring = false; }
+        
+        fireSingleLaser(aperture, targetPos) {
+            playSound('laser');
+            
+            const startPos = aperture.getWorldPosition(new THREE.Vector3());
+            const distance = startPos.distanceTo(targetPos);
+
+            // Muzzle flash
+            const flash = new THREE.PointLight(0x00ffff, 10, 5, 2);
+            flash.position.copy(startPos);
+            scene.add(flash);
+            setTimeout(() => scene.remove(flash), 60);
+            
+            // Animate aperture emissive intensity
+            aperture.material.emissiveIntensity = 1;
+            setTimeout(() => { aperture.material.emissiveIntensity = 0; }, 100);
+
+            // Create the visible laser beam
+            const beamMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
+            const beamGeom = new THREE.CylinderGeometry(0.05, 0.05, distance, 8);
+            const beam = new THREE.Mesh(beamGeom, beamMaterial);
+            
+            // Position and orient the beam
+            beam.position.copy(startPos).lerp(targetPos, 0.5);
+            beam.lookAt(targetPos);
+            beam.rotateX(Math.PI / 2);
+            
+            scene.add(beam);
+            
+            // Remove the beam after a short duration to create a pulse effect
+            setTimeout(() => {
+                scene.remove(beam);
+            }, 100);
+        }
+        
+        update(target) {
+            const targetPos = new THREE.Vector3();
+            const lookAtTarget = new THREE.Vector3();
+
+            if (isManualControl) {
+                // Raycast to find mouse position on a virtual plane for aiming
+                raycaster.setFromCamera(mouse, camera);
+                const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -100); // Aiming plane 100 units away
+                if (raycaster.ray.intersectPlane(plane, targetPos)) {
+                    lookAtTarget.copy(targetPos);
+                } else {
+                    // Fallback if plane is behind camera
+                    raycaster.ray.at(100, lookAtTarget);
+                }
+
+                if (this.manualFiring) {
+                    // Fire from all apertures towards the manual aim point
+                    this.apertures.forEach(ap => this.fireSingleLaser(ap, targetPos));
+                }
+            } else if (target) {
+                targetPos.copy(target.mesh.position);
+                lookAtTarget.copy(targetPos);
+                this.isEngaging = true;
+                this.apertures.forEach(ap => this.fireSingleLaser(ap, targetPos));
+            } else {
+                this.isEngaging = false;
+                 // When idle, point forward towards the horizon
+                const forward = new THREE.Vector3(0,0,-1).applyQuaternion(this.group.quaternion);
+                lookAtTarget.copy(this.turret.position).add(forward.multiplyScalar(100));
+                lookAtTarget.y = 1.4;
+            }
+            
+            // Smooth turret rotation
+            const targetQuaternion = new THREE.Quaternion().setFromRotationMatrix(
+                new THREE.Matrix4().lookAt(lookAtTarget, this.turret.position, this.turret.up)
+            );
+            this.turret.quaternion.slerp(targetQuaternion, 0.1);
+        }
+    }
+
+    // --- THREAT CLASS ---
+    class AdvancedThreat {
+        constructor(type) {
+            this.type = type;
+            this.health = 1.0;
+            this.id = Math.random().toString(36).substr(2, 5).toUpperCase();
+            this.mesh = this.createThreatModel(type);
+            this.hitPoint = new THREE.Vector3();
+            this.trailParticles = [];
+            
+            const startX = (Math.random() - 0.5) * 200;
+            const startZ = (Math.random() - 0.5) * 200;
+            const startY = 40 + Math.random() * 20;
+            this.mesh.position.set(startX, startY, startZ);
+
+            const targetPos = new THREE.Vector3(
+                (Math.random() - 0.5) * 20,
+                1,
+                (Math.random() - 0.5) * 20
+            );
+            
+            this.velocity = targetPos.clone().sub(this.mesh.position).normalize().multiplyScalar(this.type === 'drone' ? 15 : 60);
+            this.mesh.lookAt(targetPos);
+
+            scene.add(this.mesh);
+        }
+
+        createThreatModel(type) {
+            const group = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({color: 0xcccccc, metalness: 0.9, roughness: 0.4});
+            if(type === 'rocket') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.5, 12), bodyMat);
+                const nose = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.8, 12), bodyMat);
+                nose.position.y = 1.65;
+                group.add(body, nose);
+                group.rotation.x = Math.PI / 2;
+
+                // Setup for particle trail
+                this.trailEmitter = new THREE.Object3D();
+                this.trailEmitter.position.y = -1.5;
+                group.add(this.trailEmitter);
+
+            } else if (type === 'drone') {
+                const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 1), new THREE.MeshStandardMaterial({color: 0x444488, metalness: 0.8, roughness: 0.3}));
+                group.add(body);
+            } else { // Mortar
+                const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), new THREE.MeshStandardMaterial({color: 0x886600, metalness: 0.5, roughness: 0.6}));
+                group.add(body);
+            }
+            group.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                }
+            });
+            return group;
+        }
+
+        takeDamage(amount, hitPosition) {
+            this.health -= amount;
+            this.hitPoint.copy(hitPosition);
+            if (this.health <= 0 && this.mesh.parent) this.destroy();
+        }
+
+        destroy() {
+            playSound('explosion');
+            createExplosion(this.mesh.position);
+            triggerCameraShake(0.2, 0.5);
+            scene.remove(this.mesh);
+            const index = threats.findIndex(t => t === this);
+            if (index > -1) threats.splice(index, 1);
+            if(activeTarget === this) activeTarget = null;
+            neutralizedCount++;
+        }
+        
+        update(delta) {
+            this.mesh.position.addScaledVector(this.velocity, delta);
+
+            if(this.type === 'rocket' && this.trailEmitter) {
+                this.updateTrail(delta);
+            }
+
+            if (!isManualControl && ironBeam.isEngaging && activeTarget === this) {
+                // Simplified damage model for auto-engagement
+                this.takeDamage(1.5 * delta, this.mesh.position);
+            }
+
+            // Clean up if it hits the ground
+            if(this.mesh.position.y < 0) this.destroy();
+        }
+
+        updateTrail(delta) {
+            const trailPos = this.trailEmitter.getWorldPosition(new THREE.Vector3());
+            // Create new particles
+            for (let i = 0; i < 5; i++) {
+                const p = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.1 + Math.random() * 0.1, 4, 4),
+                    new THREE.MeshBasicMaterial({
+                        color: Math.random() > 0.3 ? 0xffa000 : 0xffffff,
+                        transparent: true,
+                        opacity: 0.8
+                    })
+                );
+                p.position.copy(trailPos);
+                p.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                );
+                p.lifespan = 1.0 + Math.random();
+                scene.add(p);
+                this.trailParticles.push(p);
+            }
+
+            // Update existing particles
+            for (let i = this.trailParticles.length - 1; i >= 0; i--) {
+                const p = this.trailParticles[i];
+                p.lifespan -= delta * 1.5;
+                if (p.lifespan <= 0) {
+                    scene.remove(p);
+                    this.trailParticles.splice(i, 1);
+                } else {
+                    p.position.addScaledVector(p.velocity, delta);
+                    p.material.opacity = p.lifespan;
+                    const scale = p.lifespan * 0.5;
+                    p.scale.set(scale, scale, scale);
+                }
+            }
+        }
+    }
+    
+    function createExplosion(position) {
+        // Core flash
+        const pointLight = new THREE.PointLight(0xffaa44, 20, 100, 2);
+        pointLight.position.copy(position);
+        scene.add(pointLight);
+        setTimeout(() => scene.remove(pointLight), 300);
+
+        // Particle cloud
+        for (let i = 0; i < 50; i++) {
+            const geometry = new THREE.SphereGeometry(0.1 + Math.random() * 0.2, 4, 4);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: Math.random() > 0.3 ? 0xff8800 : 0xffffff,
+                transparent: true,
+                opacity: 1.0
+            });
+            const p = new THREE.Mesh(geometry, material);
+            p.position.copy(position);
+            p.velocity = new THREE.Vector3(
+                (Math.random() - 0.5),
+                (Math.random() - 0.5),
+                (Math.random() - 0.5)
+            ).normalize().multiplyScalar(Math.random() * 20);
+            
+            p.update = (delta) => {
+                p.position.addScaledVector(p.velocity, delta);
+                p.material.opacity -= 1.5 * delta;
+                if(p.material.opacity <= 0) scene.remove(p);
+            };
+            scene.add(p);
+        }
+
+        // Shockwave
+        const shockwaveGeo = new THREE.RingGeometry(0.1, 1, 32);
+        const shockwaveMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.8,
+            side: THREE.DoubleSide
+        });
+        const shockwave = new THREE.Mesh(shockwaveGeo, shockwaveMat);
+        shockwave.position.copy(position);
+        shockwave.lookAt(camera.position);
+        
+        shockwave.update = (delta) => {
+            const scale = shockwave.scale.x + delta * 30;
+            shockwave.scale.set(scale, scale, scale);
+            shockwave.material.opacity -= delta * 1.5;
+            if (shockwave.material.opacity <= 0) scene.remove(shockwave);
+        };
+        scene.add(shockwave);
+    }
+    
+    function triggerCameraShake(intensity, duration) {
+        cameraShake.intensity = intensity;
+        cameraShake.duration = duration;
+    }
+
+    // --- ANIMATION & MAIN LOGIC ---
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        
+        if (!isManualControl) {
+            // Auto-targeting logic
+            if ((!activeTarget || activeTarget.health <= 0) && threats.length > 0) {
+                activeTarget = threats[0]; // Simple targeting: first in list
+                controls.target.copy(activeTarget.mesh.position);
+            } else if (activeTarget) {
+                 controls.target.lerp(activeTarget.mesh.position, 0.1);
+            } else {
+                 controls.target.lerp(new THREE.Vector3(0, 2, 0), 0.1);
+            }
+        } else {
+            activeTarget = null;
+            controls.target.lerp(new THREE.Vector3(0, 2, 0), 0.1);
+        }
+
+        threats.forEach(threat => threat.update(delta));
+        ironBeam.update(activeTarget);
+        
+        scene.children.forEach(child => {
+            if (child.update) child.update(delta);
+        });
+        
+        // Manual fire damage logic
+        if (isManualControl && ironBeam.manualFiring) {
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(threats.map(t => t.mesh), true);
+            if(intersects.length > 0) {
+                const hitObject = intersects[0].object;
+                const hitThreat = threats.find(t => t.mesh.uuid === hitObject.parent.uuid || t.mesh.uuid === hitObject.uuid);
+                if (hitThreat) hitThreat.takeDamage(5 * delta, intersects[0].point);
+            }
+        }
+
+        controls.update();
+
+        // Apply camera shake
+        if (cameraShake.duration > 0) {
+            camera.position.x += (Math.random() - 0.5) * cameraShake.intensity;
+            camera.position.y += (Math.random() - 0.5) * cameraShake.intensity;
+            camera.position.z += (Math.random() - 0.5) * cameraShake.intensity;
+            cameraShake.duration -= delta;
+        } else {
+            cameraShake.intensity = 0;
+        }
+        
+        composer.render();
+        updateHUD();
+    }
+    
+    // --- UI & CONTROLS ---
+    function updateHUD() {
+        document.getElementById('targets-tracked').textContent = threats.length;
+        document.getElementById('neutralized-count').textContent = neutralizedCount;
+        
+        if(activeTarget) {
+            const range = activeTarget.mesh.position.distanceTo(ironBeam.group.position);
+            document.getElementById('current-target').textContent = activeTarget.id;
+            document.getElementById('target-range').textContent = (range / 10).toFixed(2) + ' km';
+            document.getElementById('target-health').textContent = (activeTarget.health * 100).toFixed(0) + '%';
+        } else {
+            document.getElementById('current-target').textContent = 'None';
+            document.getElementById('target-range').textContent = '-- km';
+            document.getElementById('target-health').textContent = '--%';
+        }
+    }
+    
+    function toggleManualControl(button) {
+        isManualControl = !isManualControl;
+        button.classList.toggle('active', isManualControl);
+        updateSystemStatus(isManualControl ? 'MANUAL' : 'OPERATIONAL', isManualControl ? 'status-manual' : 'status-ready');
+    }
+    
+    function toggleHud() {
+        isHudVisible = !isHudVisible;
+        document.querySelectorAll('.panel').forEach(p => p.style.opacity = isHudVisible ? '1' : '0');
+    }
+
+    function launchAdvancedThreat(type) { threats.push(new AdvancedThreat(type)); }
+    function launchMultiThreat() {
+        launchAdvancedThreat('rocket');
+        setTimeout(() => launchAdvancedThreat('mortar'), 500);
+        setTimeout(() => launchAdvancedThreat('rocket'), 1000);
+        setTimeout(() => launchAdvancedThreat('drone'), 1500);
+    }
+    function resetAdvancedDemo() { 
+        threats.forEach(t => scene.remove(t.mesh));
+        threats.length = 0;
+        activeTarget = null;
+        neutralizedCount = 0;
+    }
+
+    // --- EVENT HANDLERS ---
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(window.innerWidth, window.innerHeight);
+    }
+    
+    function onMouseMove(event) {
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    }
+    
+    // --- INITIALIZATION ---
+    init();
+</script>
+</body>
+</html>
+
+
