@@ -416,7 +416,7 @@
             
             // Smooth turret rotation
             const targetQuaternion = new THREE.Quaternion().setFromRotationMatrix(
-                new THREE.Matrix4().lookAt(lookAtTarget, this.turret.position, this.turret.up)
+                new THREE.Matrix4().lookAt(this.turret.position, lookAtTarget, this.turret.up)
             );
             this.turret.quaternion.slerp(targetQuaternion, 0.1);
         }
